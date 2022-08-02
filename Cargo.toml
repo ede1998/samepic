@@ -5,4 +5,15 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "image_compare"
+
+[[bin]]
+name = "gui"
+
 [dependencies]
+dioxus = { version = "0.2.4", features = ["desktop"] }
+image = "0.23.14"
+img_hash = "3.2.0"
+tabled = "0.8.0"
+walkdir = "2.3.2"
