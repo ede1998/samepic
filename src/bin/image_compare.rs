@@ -47,7 +47,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use tabled::builder::Builder;
 
     let mut builder = Builder::default();
-    builder.set_columns(std::iter::once(String::new()).chain(images.iter().map(|i| i.path.display().to_string())));
+    builder.set_columns(
+        std::iter::once(String::new()).chain(images.iter().map(|i| i.path.display().to_string())),
+    );
     for image1 in &images {
         let dists = images.iter().map(|i| i.hash.dist(&image1.hash).to_string());
         builder.add_record(std::iter::once(image1.path.display().to_string()).chain(dists));

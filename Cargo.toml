@@ -12,8 +12,13 @@ name = "image_compare"
 name = "gui"
 
 [dependencies]
+chrono = "0.4.20"
 dioxus = { version = "0.2.4", features = ["desktop"] }
 image = "0.23.14"
 img_hash = "3.2.0"
+itertools = "0.10.3"
+kamadak-exif = "0.5.4"
+log = "0.4.17"
 tabled = "0.8.0"
+thiserror = "1.0.32"
 walkdir = "2.3.2"
