@@ -200,9 +200,16 @@ header i:nth-child(1) {
 
 .flex-item {
     padding: 5px;
-    max-width: 15vw;
+    max-width: 30vw;
+    height: 30vh;
 }
 
 .flex-item p {
     overflow: auto;
+}
+
+h1 {
+    color: lightgray;
+    font-style: italic;
+    font-size: medium;
 }

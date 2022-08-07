@@ -12,6 +12,7 @@ name = "image_compare"
 name = "gui"
 
 [dependencies]
+camino = "1.0.9"
 chrono = "0.4.20"
 dioxus = { version = "0.2.4", features = ["desktop"] }
 image = "0.23.14"

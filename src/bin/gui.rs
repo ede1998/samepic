@@ -5,15 +5,13 @@
 //!
 //! This example is interesting because it's mixing filesystem operations and GUI, which is typically hard for UI to do.
 
-use std::{
-    collections::HashSet,
-    io::Cursor,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, io::Cursor};
 
-use chrono::NaiveDate;
+use camino::{Utf8Path, Utf8PathBuf};
+use chrono::{NaiveDate, NaiveDateTime};
 use dioxus::prelude::*;
 use image::{DynamicImage, GenericImageView};
+use img_hash::HashBytes;
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -25,6 +23,19 @@ fn main() {
 static APP: Component<()> = |cx| {
     let piles = use_ref(&cx, init);
 
+    fn group_piles<'a>(
+        piles: &'a [Pile],
+    ) -> itertools::GroupBy<
+        NaiveDate,
+        std::vec::IntoIter<&'a Pile>,
+        impl FnMut(&&'a Pile) -> NaiveDate,
+    > {
+        piles
+            .iter()
+            .sorted_by_key(|p| p.date())
+            .group_by(|p| p.date)
+    }
+
     rsx!(cx, div {
         link { href:"https://fonts.googleapis.com/icon?family=Material+Icons", rel:"stylesheet" }
         style { [include_str!("./style.css")] }
@@ -34,9 +45,13 @@ static APP: Component<()> = |cx| {
             //i { class: "material-icons", onclick: move |_| files.write().go_up(), "logout" }
         }
         main {
-            crate::day_batch {
-                date: NaiveDate::from_ymd(2016, 7, 21),
-                piles: piles.read().iter().map(|p| SimilarityPileProps { preview_path: p.preview().to_string_lossy().into(), image_count: p.len()}).collect(),
+            {
+                group_piles(&piles.read()).into_iter().map(|(date, piles)| {
+                    rsx!(crate::day_batch {
+                            date: date,
+                            piles: piles.map(|p| SimilarityPileProps { preview_path: p.preview().into(), image_count: p.len()}).collect(),
+                        })
+                })
             }
             // files.read().err.as_ref().map(|err| {
             //     rsx! (
@@ -59,20 +74,22 @@ struct DayBatchProps {
 fn day_batch(cx: Scope<DayBatchProps>) -> Element {
     let date = cx.props.date.format("%A, %-d. %B, %C%y");
     cx.render(rsx!(
-        h1 { "{date}" }
-        ul {
-            class: "flex-container",
-        cx.props.piles.iter().cloned().map(|p| rsx!(li {
-            //key: "{&p.preview_picture}",
-            class: "flex-item",
-            crate::similarity_pile{..p }}))
+        div {
+            h1 { class: "batch-heading", "{date}" }
+            ul {
+                class: "flex-container",
+                cx.props.piles.iter().cloned().map(|p| rsx!(li {
+                    //key: "{&p.preview_picture}",
+                    class: "flex-item",
+                    crate::similarity_pile{..p }}))
+            }
         }
     ))
 }
 
 #[derive(Debug, PartialEq, Props, Clone)]
 struct SimilarityPileProps {
-    preview_path: String,
+    preview_path: Utf8PathBuf,
     image_count: usize,
 }
 
@@ -89,7 +106,7 @@ fn similarity_pile(cx: Scope<SimilarityPileProps>) -> Element {
     }))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Pile {
     pictures: HashSet<Image>,
     date: NaiveDate,
@@ -100,7 +117,11 @@ impl Pile {
         self.pictures.len()
     }
 
-    pub fn preview(&self) -> &Path {
+    pub fn date(&self) -> NaiveDate {
+        self.date
+    }
+
+    pub fn preview(&self) -> &Utf8Path {
         &self.pictures.iter().next().expect("empty pile").path
     }
 
@@ -113,22 +134,39 @@ impl Pile {
 
     pub fn push(&mut self, image: Image) {
         self.pictures.insert(image);
+        self.update_date();
     }
 
     pub fn merge(&mut self, other: Pile) {
         self.pictures.extend(other.pictures);
+        self.update_date();
+    }
+
+    fn update_date(&mut self) {
+        self.date = self
+            .pictures
+            .iter()
+            .map(|p| p.timestamp.date())
+            .min()
+            // any pile has at least one element
+            .expect("computing pile date");
     }
 }
 
 fn init() -> Vec<Pile> {
     use img_hash::{HasherConfig, ImageHash};
     use walkdir::WalkDir;
-    let hasher = HasherConfig::new().to_hasher();
 
     #[derive(Debug, Clone)]
     struct HashedImage {
         pub image: Image,
-        pub hash: ImageHash,
+        pub hash: ImageHash<[u8; 8]>,
+    }
+
+    impl std::fmt::Display for HashedImage {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "{}", self.image.path)
+        }
     }
 
     let images: Vec<_> = WalkDir::new("samples")
@@ -136,12 +174,13 @@ fn init() -> Vec<Pile> {
         .filter_map(|e| {
             e.ok()
                 .filter(|e| e.file_type().is_file())
-                .map(|e| e.into_path())
+                .and_then(|e| e.into_path().try_into().ok())
         })
         .filter_map(|path| {
+            let hasher = HasherConfig::with_bytes_type::<[u8; 8]>().to_hasher();
             let image = Image::load(path)
                 .map_err(|(path, err)| {
-                    eprintln!("Failed to load image {}: {err}", path.display());
+                    eprintln!("Failed to load image {path}: {err}");
                     err
                 })
                 .ok()?;
@@ -165,33 +204,28 @@ fn init() -> Vec<Pile> {
                     let mut pile = Pile::new(r.image.clone());
                     pile.push(l.image.clone());
                     piles.push(pile);
-                    println!("Added picture {} to pile {}", path(l), piles.len() - 1);
+                    let index = piles.len() - 1;
+                    println!("Added picture {l} to pile {index}");
                     if l.image != r.image {
-                        println!("Added picture {} to pile {}", path(r), piles.len() - 1);
+                        println!("Added picture {r} to pile {index}");
                     }
                 },
                 (Some(pile), None) => {
                     piles[pile].push(r.image.clone());
-                    println!("Added picture {} to pile {pile} because it also contains picture {}", path(r), path(l));
+                    println!("Added picture {r} to pile {pile} because it also contains picture {l}");
                 },
                 (None, Some(pile)) => {
                     piles[pile].push(l.image.clone());
-                    println!("Added picture {} to pile {pile} because it also contains picture {}", path(l), path(r));
+                    println!("Added picture {l} to pile {pile} because it also contains picture {r}");
                 },
-                (Some(left_pile), Some(right_pile)) => {
-                    if left_pile == right_pile {
-                        return piles;
+                (Some(i), Some(j)) => {
+                    if i != j {
+                        let disbanding_pile = piles.swap_remove(j);
+                        piles[i].merge(disbanding_pile);
+                        println!("Merged piles {i} and {j} to {i} because picture {l} belonged to pile {i} and picture {r} belonged to pile {j}");
                     }
-                    let disbanding_pile = piles.swap_remove(right_pile);
-                    piles[left_pile].merge(disbanding_pile);
-                    println!("Merged piles {left_pile} and {right_pile} to {left_pile} because picture {} belonged to pile {left_pile} and picture {} belonged to pile {right_pile}", path(l), path(r));
                 }
             }
-
-            fn path(image: &HashedImage) -> std::path::Display {
-                image.image.path.display()
-            }
-
             piles
         });
 
@@ -202,9 +236,9 @@ fn init() -> Vec<Pile> {
 
 #[derive(Clone)]
 struct Image {
-    path: PathBuf,
+    path: Utf8PathBuf,
     pixels: DynamicImage,
-    exif: std::rc::Rc<exif::Exif>,
+    timestamp: NaiveDateTime,
 }
 
 impl std::hash::Hash for Image {
@@ -222,7 +256,7 @@ impl PartialEq for Image {
 }
 
 impl Image {
-    pub fn load(path: PathBuf) -> Result<Self, (PathBuf, ImageLoadError)> {
+    pub fn load(path: Utf8PathBuf) -> Result<Self, (Utf8PathBuf, ImageLoadError)> {
         let load = || {
             use image::io::Reader;
             let file = std::fs::read(&path)?;
@@ -232,19 +266,47 @@ impl Image {
             };
             let exif = {
                 let mut file_cursor = Cursor::new(&file);
-                exif::Reader::new()
-                    .read_from_container(&mut file_cursor)?
-                    .into()
+                exif::Reader::new().read_from_container(&mut file_cursor)?
             };
-            Ok((pixels, exif))
+            let tags = [
+                exif::Tag::DateTimeOriginal,
+                exif::Tag::DateTime,
+                exif::Tag::DateTimeDigitized,
+            ];
+            let ifds = [exif::In::PRIMARY, exif::In::THUMBNAIL];
+            let timestamp = tags
+                .into_iter()
+                .flat_map(|tag| ifds.into_iter().map(move |ifd| (tag, ifd)))
+                .find_map(|(tag, ifd)| {
+                    let f = exif.get_field(tag, ifd)?;
+                    let dt: String = match f.value {
+                        exif::Value::Ascii(ref a) => a
+                            .iter()
+                            .flat_map(|c| c.iter().copied().map(char::from))
+                            .collect(),
+                        _ => return None,
+                    };
+                    let dt = exif::DateTime::from_ascii(dt.as_bytes()).ok()?;
+                    Some(
+                        NaiveDate::from_ymd(dt.year.into(), dt.month.into(), dt.day.into())
+                            .and_hms(dt.hour.into(), dt.minute.into(), dt.second.into()),
+                    )
+                })
+                .unwrap_or(NaiveDateTime::MAX);
+
+            Ok((pixels, timestamp))
         };
         match load() {
-            Ok((pixels, exif)) => Ok(Self { path, pixels, exif }),
+            Ok((pixels, timestamp)) => Ok(Self {
+                path,
+                pixels,
+                timestamp,
+            }),
             Err(err) => Err((path, err)),
         }
     }
 
-    pub fn hash(&self, hasher: &img_hash::Hasher) -> img_hash::ImageHash {
+    pub fn hash<B: HashBytes>(&self, hasher: &img_hash::Hasher<B>) -> img_hash::ImageHash<B> {
         hasher.hash_image(&self.pixels)
     }
 }
@@ -287,7 +349,7 @@ impl std::fmt::Debug for Image {
         f.debug_struct("Image")
             .field("path", &self.path)
             .field("pixels", &HelperPixels(&self.pixels))
-            .field("exif", &Helper(&self.exif))
+            .field("timestamp", &self.timestamp)
             .finish()
     }
 }
