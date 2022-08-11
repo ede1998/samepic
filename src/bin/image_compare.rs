@@ -1,13 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use image::{DynamicImage, ImageError};
+use image::ImageError;
 use image_hasher::{HasherConfig, ImageHash};
 use tabled::{Table, Tabled};
 
 #[derive(Tabled)]
 struct HashedImage {
-    #[tabled(skip)]
-    pub image: DynamicImage,
     #[tabled(display_with = "display_path")]
     pub path: PathBuf,
     #[tabled(display_with = "ImageHash::to_base64")]
@@ -36,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|path| {
             let image = image::open(&path)?;
             let hash = hasher.hash_image(&image);
-            Ok(HashedImage { image, path, hash })
+            Ok(HashedImage { path, hash })
         })
         .collect::<Result<Vec<_>, ImageError>>()?;
 

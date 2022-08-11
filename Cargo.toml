@@ -11,6 +11,9 @@ name = "image_compare"
 [[bin]]
 name = "gui"
 
+[[bin]]
+name = "test"
+
 [profile.dev]
 #opt-level = 3
 
@@ -31,3 +34,4 @@ egui_extras = { version = "0.18.0", features = ["image"] }
 serde = { version = "1.0.142", features = ["serde_derive"] }
 tracing = "0.1.36"
 tracing-subscriber = "0.3.15"
+lru = "0.7.8"
