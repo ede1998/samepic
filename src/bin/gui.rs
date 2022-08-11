@@ -12,6 +12,7 @@ use std::{collections::HashSet, io::Cursor};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use chrono::{NaiveDate, NaiveDateTime};
+use egui::ColorImage;
 use egui_extras::RetainedImage;
 use image::{DynamicImage, GenericImageView};
 use image_hasher::{HashBytes, ImageHash};
@@ -231,10 +232,21 @@ impl Image {
 
             Ok((pixels, timestamp))
         };
-        match load().and_then(|(pixels, timestamp)| {
-            let image = RetainedImage::from_image_bytes(path.as_str(), pixels.as_bytes())
-                .map_err(ImageLoadError::ImageConversionError)?;
-            Ok((pixels, timestamp, image))
+        match load().map(|(pixels, timestamp)| {
+            let (w, h) = pixels.dimensions();
+            let w = w.try_into().unwrap_or(usize::MAX);
+            let h = h.try_into().unwrap_or(usize::MAX);
+            let pixels1 = pixels
+                .pixels()
+                .take(w * h)
+                .map(|(_x, _y, rgba)| egui::Color32::from_rgb(rgba.0[0], rgba.0[1], rgba.0[2]))
+                .collect();
+            let image = ColorImage {
+                size: [w, h],
+                pixels: pixels1,
+            };
+            let image = RetainedImage::from_color_image(path.as_str(), image);
+            (pixels, timestamp, image)
         }) {
             Ok((pixels, timestamp, image)) => Ok(Self {
                 retained_image: image.into(),
@@ -262,8 +274,6 @@ enum ImageLoadError {
     InvalidExif(#[from] exif::Error),
     #[error("invalid image")]
     InvalidImage(#[from] image::error::ImageError),
-    #[error("failed to convert image")]
-    ImageConversionError(String),
 }
 
 impl std::fmt::Debug for Image {
@@ -346,7 +356,7 @@ impl TemplateApp {
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
+        if let Some(_storage) = cc.storage {
             //return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
