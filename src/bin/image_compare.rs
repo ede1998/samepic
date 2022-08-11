@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use image::{DynamicImage, ImageError};
-use img_hash::{HasherConfig, ImageHash};
+use image_hasher::{HasherConfig, ImageHash};
 use tabled::{Table, Tabled};
 
 #[derive(Tabled)]

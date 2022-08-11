@@ -5,105 +5,39 @@
 //!
 //! This example is interesting because it's mixing filesystem operations and GUI, which is typically hard for UI to do.
 
+// ![warn(clippy::all, rust_2018_idioms)]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+
 use std::{collections::HashSet, io::Cursor};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use chrono::{NaiveDate, NaiveDateTime};
-use dioxus::prelude::*;
+use egui_extras::RetainedImage;
 use image::{DynamicImage, GenericImageView};
-use img_hash::HashBytes;
+use image_hasher::{HashBytes, ImageHash};
 use itertools::Itertools;
 use thiserror::Error;
 
-fn main() {
-    // simple_logger::init_with_level(log::Level::Debug).unwrap();
-    dioxus::desktop::launch_cfg(APP, |c| c.with_window(|w| w.with_resizable(true)));
+fn group_piles<'a>(
+    piles: &'a [Pile],
+) -> itertools::GroupBy<NaiveDate, std::vec::IntoIter<&'a Pile>, impl FnMut(&&'a Pile) -> NaiveDate>
+{
+    piles
+        .iter()
+        .sorted_by_key(|p| p.date())
+        .group_by(|p| p.date)
 }
 
-static APP: Component<()> = |cx| {
-    let piles = use_ref(&cx, init);
-
-    fn group_piles<'a>(
-        piles: &'a [Pile],
-    ) -> itertools::GroupBy<
-        NaiveDate,
-        std::vec::IntoIter<&'a Pile>,
-        impl FnMut(&&'a Pile) -> NaiveDate,
-    > {
-        piles
-            .iter()
-            .sorted_by_key(|p| p.date())
-            .group_by(|p| p.date)
-    }
-
-    rsx!(cx, div {
-        link { href:"https://fonts.googleapis.com/icon?family=Material+Icons", rel:"stylesheet" }
-        style { [include_str!("./style.css")] }
-        header {
-            i { class: "material-icons icon-menu", "menu" }
-            span { }
-            //i { class: "material-icons", onclick: move |_| files.write().go_up(), "logout" }
-        }
-        main {
-            {
-                group_piles(&piles.read()).into_iter().map(|(date, piles)| {
-                    rsx!(crate::day_batch {
-                            date: date,
-                            piles: piles.map(|p| SimilarityPileProps { preview_path: p.preview().into(), image_count: p.len()}).collect(),
-                        })
-                })
-            }
-            // files.read().err.as_ref().map(|err| {
-            //     rsx! (
-            //         div {
-            //             code { "{err}" }
-            //             button { onclick: move |_| files.write().clear_err(), "x" }
-            //         }
-            //     )
-            // })
-        }
-    })
-};
-
-#[derive(Debug, PartialEq, Props)]
+#[derive(Debug, PartialEq)]
 struct DayBatchProps {
     date: NaiveDate,
     piles: Vec<SimilarityPileProps>,
 }
 
-fn day_batch(cx: Scope<DayBatchProps>) -> Element {
-    let date = cx.props.date.format("%A, %-d. %B, %C%y");
-    cx.render(rsx!(
-        div {
-            h1 { class: "batch-heading", "{date}" }
-            ul {
-                class: "flex-container",
-                cx.props.piles.iter().cloned().map(|p| rsx!(li {
-                    //key: "{&p.preview_picture}",
-                    class: "flex-item",
-                    crate::similarity_pile{..p }}))
-            }
-        }
-    ))
-}
-
-#[derive(Debug, PartialEq, Props, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 struct SimilarityPileProps {
     preview_path: Utf8PathBuf,
     image_count: usize,
-}
-
-fn similarity_pile(cx: Scope<SimilarityPileProps>) -> Element {
-    cx.render(rsx!(
-    div {
-        img {
-            //onclick: move |_| files.write().enter_dir(dir_id),
-            max_width: "100%",
-            max_height: "100%",
-            src: "{cx.props.preview_path}"
-        }
-        p { "{cx.props.image_count}" }
-    }))
 }
 
 #[derive(Debug, Clone)]
@@ -154,7 +88,7 @@ impl Pile {
 }
 
 fn init() -> Vec<Pile> {
-    use img_hash::{HasherConfig, ImageHash};
+    use image_hasher::HasherConfig;
     use walkdir::WalkDir;
 
     #[derive(Debug, Clone)]
@@ -238,6 +172,7 @@ fn init() -> Vec<Pile> {
 struct Image {
     path: Utf8PathBuf,
     pixels: DynamicImage,
+    retained_image: std::rc::Rc<RetainedImage>,
     timestamp: NaiveDateTime,
 }
 
@@ -296,8 +231,13 @@ impl Image {
 
             Ok((pixels, timestamp))
         };
-        match load() {
-            Ok((pixels, timestamp)) => Ok(Self {
+        match load().and_then(|(pixels, timestamp)| {
+            let image = RetainedImage::from_image_bytes(path.as_str(), pixels.as_bytes())
+                .map_err(ImageLoadError::ImageConversionError)?;
+            Ok((pixels, timestamp, image))
+        }) {
+            Ok((pixels, timestamp, image)) => Ok(Self {
+                retained_image: image.into(),
                 path,
                 pixels,
                 timestamp,
@@ -306,7 +246,10 @@ impl Image {
         }
     }
 
-    pub fn hash<B: HashBytes>(&self, hasher: &img_hash::Hasher<B>) -> img_hash::ImageHash<B> {
+    pub fn hash<B: HashBytes>(
+        &self,
+        hasher: &image_hasher::Hasher<B>,
+    ) -> image_hasher::ImageHash<B> {
         hasher.hash_image(&self.pixels)
     }
 }
@@ -319,6 +262,8 @@ enum ImageLoadError {
     InvalidExif(#[from] exif::Error),
     #[error("invalid image")]
     InvalidImage(#[from] image::error::ImageError),
+    #[error("failed to convert image")]
+    ImageConversionError(String),
 }
 
 impl std::fmt::Debug for Image {
@@ -351,5 +296,110 @@ impl std::fmt::Debug for Image {
             .field("pixels", &HelperPixels(&self.pixels))
             .field("timestamp", &self.timestamp)
             .finish()
+    }
+}
+
+// When compiling natively:
+fn main() {
+    // Log to stdout (if you run with `RUST_LOG=debug`).
+    tracing_subscriber::fmt::init();
+
+    let native_options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "eframe template",
+        native_options,
+        Box::new(|cc| Box::new(TemplateApp::new(cc))),
+    );
+}
+// We derive Deserialize/Serialize so we can persist app state on shutdown.
+#[derive(serde::Deserialize, serde::Serialize, Default)]
+#[serde(default)] // if we add new fields, give them default values when deserializing old state
+pub struct TemplateApp {
+    #[serde(skip)]
+    images: Vec<Pile>,
+}
+
+// impl Default for TemplateApp {
+//     fn default() -> Self {
+//         Self {
+//             data: vec![
+//                 ("Wednesday, 23rd January 2022".into(), vec![6, 1, 5, 16, 1]),
+//                 ("Thursday, 24th January 2022".into(), vec![9, 51]),
+//                 ("Tuesday, 18th February 2022".into(), vec![88]),
+//                 ("Monday, 17th July 2022".into(), vec![0, 17, 32]),
+//             ],
+//             image: None,
+//         }
+//     }
+// }
+
+impl TemplateApp {
+    /// Called once before the first frame.
+    pub fn new(cc: &eframe::CreationContext) -> Self {
+        // This is also where you can customized the look at feel of egui using
+        // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
+
+        let dark_mode = cc.integration_info.prefer_dark_mode.unwrap_or(true);
+        if dark_mode {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        }
+
+        // Load previous app state (if any).
+        // Note that you must enable the `persistence` feature for this to work.
+        if let Some(storage) = cc.storage {
+            //return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+        }
+
+        TemplateApp { images: init() }
+    }
+}
+
+impl eframe::App for TemplateApp {
+    /// Called by the frame work to save state before shutdown.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, self);
+    }
+
+    /// Called each time the UI needs repainting, which may be many times per second.
+    /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Examples of how to create different panels and windows.
+        // Pick whichever suits you.
+        // Tip: a good default choice is to just keep the `CentralPanel`.
+        // For inspiration and more examples, go to https://emilk.github.io/egui
+
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            // The top panel is often a good place for a menu bar:
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Quit").clicked() {
+                        frame.quit();
+                    }
+                });
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (day, piles) in &group_piles(&self.images) {
+                    ui.heading(format!("{}", day.format("%A, %-d %B, %C%y")));
+                    ui.horizontal_wrapped(|ui| {
+                        for pile in piles {
+                            ui.group(|ui| {
+                                ui.vertical(|ui| {
+                                    let first = pile.pictures.iter().next().unwrap();
+
+                                    first
+                                        .retained_image
+                                        .show_max_size(ui, egui::vec2(100., 100.));
+                                    ui.label(format!("{}", pile.pictures.len()));
+                                });
+                            });
+                        }
+                    });
+                }
+                ui.set_width(ui.available_width());
+            });
+        });
     }
 }
