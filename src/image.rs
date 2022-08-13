@@ -20,8 +20,11 @@ impl Image {
 
     pub fn load(path: &Utf8Path) -> Result<Self, ImageLoadError> {
         let file = std::fs::read(&path)?;
+        let meta = std::fs::metadata(&path)?;
+        let fallback: chrono::DateTime<chrono::Local> =
+            meta.created().or_else(|_| meta.accessed())?.into();
 
-        let timestamp = parse_time_stamp(&file, NaiveDateTime::MAX);
+        let timestamp = parse_time_stamp(&file, fallback.naive_local());
 
         let base_image = {
             let file_cursor = Cursor::new(&file);

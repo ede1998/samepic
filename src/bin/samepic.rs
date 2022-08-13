@@ -1,3 +1,8 @@
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
+
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Parser, Subcommand};
 use samepic::Repository;
@@ -26,10 +31,56 @@ fn main() -> Result<()> {
             let repo = Repository::new(source);
             create_dir(&destination)?;
             repo.create_piles(&destination)?;
+            show_folders(&destination, opener)?;
         }
         Commands::End => todo!(),
     }
     Ok(())
+}
+
+fn show_folders(path: &Utf8Path, opener: Option<PathBuf>) -> Result<()> {
+    for dir in path.read_dir()? {
+        let dir = dir?.path();
+        match opener {
+            Some(ref opener) => {
+                spawn_process(opener, &dir)?;
+            }
+            None => {
+                opener::open(dir)?;
+                pause();
+            }
+        }
+    }
+    Ok(())
+}
+
+fn spawn_process(exe: &Path, arg: &Path) -> Result<()> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(exe)
+        .arg(arg)
+        .stderr(Stdio::inherit())
+        .stdout(Stdio::null())
+        .stdin(Stdio::null())
+        .spawn()?;
+
+    child.wait()?;
+    Ok(())
+}
+
+fn pause() {
+    use std::io::Read;
+
+    let mut stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+
+    // We want the cursor to stay at the end of the line, so we print without a newline and flush manually.
+    stdout
+        .write_all(b"Press enter to continue...")
+        .expect("failed to write to stdout");
+    stdout.flush().expect("failed to flush stdout");
+
+    // Read a single byte and discard
+    let _ = stdin.read(&mut [0u8]).unwrap();
 }
 
 /// Group similar images in joint folders so duplicates are easily deleteable
@@ -52,8 +103,8 @@ enum Commands {
         #[clap(short, long, value_parser)]
         destination: Option<Utf8PathBuf>,
         /// Program to open the picture folders with. Defaults to the default folder explorer.
-        #[clap(short, long, value_parser)]
-        opener: Option<String>,
+        #[clap(short, long, value_parser = program)]
+        opener: Option<PathBuf>,
     },
     End,
 }
@@ -63,6 +114,12 @@ fn dir(s: &str) -> Result<Utf8PathBuf> {
     meta.is_dir()
         .then(|| s.into())
         .wrap_err("Source is not a directory.")
+}
+
+fn program(s: &str) -> Result<PathBuf> {
+    use which::which;
+
+    which(s).wrap_err_with(|| format!("Opener {s} is not a valid executable."))
 }
 
 fn create_dir(dir: &Utf8Path) -> Result<()> {

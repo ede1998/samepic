@@ -93,7 +93,7 @@ impl Repository {
                 .entry(pile.date())
                 .and_modify(|e| *e += 1)
                 .or_default();
-            let timestamp = format!("{}_{n:0000}", pile.date());
+            let timestamp = format!("{}_{n:04}", pile.date());
             let dir = dest.join(timestamp);
             fs::create_dir(&dir)?;
             for image in &pile.pictures {
