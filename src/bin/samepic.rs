@@ -19,6 +19,7 @@ fn main() -> Result<()> {
             source,
             destination,
             opener,
+            no_open,
         } => {
             let destination = destination.unwrap_or_else(|| {
                 let mut dest = source.clone();
@@ -31,7 +32,9 @@ fn main() -> Result<()> {
             let repo = Repository::new(source);
             create_dir(&destination)?;
             repo.create_piles(&destination)?;
-            show_folders(&destination, opener)?;
+            if !no_open {
+                show_folders(&destination, opener)?;
+            }
         }
         Commands::End => todo!(),
     }
@@ -105,6 +108,9 @@ enum Commands {
         /// Program to open the picture folders with. Defaults to the default folder explorer.
         #[clap(short, long, value_parser = program)]
         opener: Option<PathBuf>,
+        /// do not attempt to open image folders after sorting.
+        #[clap(short, long, value_parser)]
+        no_open: bool,
     },
     End,
 }
@@ -123,10 +129,9 @@ fn program(s: &str) -> Result<PathBuf> {
 }
 
 fn create_dir(dir: &Utf8Path) -> Result<()> {
-    if let Ok(mut dir) = dir.read_dir() {
-        if dir.next().is_none() {
-            return Err(eyre!("Non-empty directory"));
-        }
+    std::fs::create_dir_all(dir).wrap_err_with(|| format!("Cannot create directory {}.", dir))?;
+    match std::fs::read_dir(dir)?.next() {
+        Some(_) => Err(eyre!("Target directory not empty.")),
+        None => Ok(()),
     }
-    std::fs::create_dir_all(dir).wrap_err_with(|| format!("Failed to create directory {}", dir))
 }
