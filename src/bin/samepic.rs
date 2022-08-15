@@ -32,8 +32,8 @@ fn main() -> Result<()> {
                 }
                 dest
             });
-            let repo = Repository::new(source);
             create_dir(&destination)?;
+            let repo = Repository::new(source);
             repo.create_piles(&destination)?;
             if !no_open {
                 show_folders(&destination, opener)?;

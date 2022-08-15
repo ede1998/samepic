@@ -41,13 +41,15 @@ impl Repository {
 
         tracing::info!("Loaded {} images.", images.len());
 
-        let piles: Vec<Pile> = images
-        .iter()
-        .tuple_combinations::<(_, _)>()
-        .par_bridge()
-        .filter(|(l, r)| l.hash.dist(&r.hash) < 20)
-        .chain(images.par_iter().map(|i| (i,i)))
-        .fold(|| Vec::with_capacity(images.len()), |mut piles: Vec<Pile>, (l, r)| {
+        let piles: Vec<_> = images
+            .iter()
+            .tuple_combinations::<(_, _)>()
+            .par_bridge()
+            .filter(|(l, r)| l.hash.dist(&r.hash) < 20)
+            .chain(images.par_iter().map(|i| (i, i)))
+            .collect();
+
+        let piles = piles.into_iter().fold(Vec::with_capacity(images.len()), |mut piles: Vec<Pile>, (l, r)| {
             let left_pile = piles.iter().position(|pile| pile.pictures.contains(l));
             let right_pile = piles.iter().position(|pile| pile.pictures.contains(r));
             match (left_pile, right_pile) {
@@ -78,9 +80,9 @@ impl Repository {
                 }
             }
             piles
-        }).flatten().collect();
+        });
 
-        tracing::trace!("{piles:?}");
+        tracing::trace!("{piles:#?}");
 
         repo.piles = piles;
 
