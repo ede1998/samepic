@@ -7,7 +7,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Parser, Subcommand};
 use samepic::Repository;
 
-use color_eyre::eyre::{eyre, Context, ContextCompat, Result};
+use color_eyre::{
+    eyre::{eyre, Context, ContextCompat, Result},
+    Help,
+};
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -131,7 +134,8 @@ fn program(s: &str) -> Result<PathBuf> {
 fn create_dir(dir: &Utf8Path) -> Result<()> {
     std::fs::create_dir_all(dir).wrap_err_with(|| format!("Cannot create directory {}.", dir))?;
     match std::fs::read_dir(dir)?.next() {
-        Some(_) => Err(eyre!("Target directory not empty.")),
+        Some(_) => Err(eyre!("Target directory not empty."))
+            .suggestion("Pass an empty or non-existent target directory."),
         None => Ok(()),
     }
 }

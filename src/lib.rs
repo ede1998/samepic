@@ -31,7 +31,7 @@ impl Repository {
             .filter_map(|path: Utf8PathBuf| {
                 let image = Image::load(&path)
                     .map_err(|err| {
-                        eprintln!("Failed to load image {path}: {err}");
+                        tracing::error!("Failed to load image {path}: {err}");
                         err
                     })
                     .ok()?;
@@ -39,7 +39,7 @@ impl Repository {
             })
             .collect();
 
-        println!("Loaded {} images.", images.len());
+        tracing::info!("Loaded {} images.", images.len());
 
         let piles: Vec<Pile> = images
         .iter()
@@ -56,31 +56,31 @@ impl Repository {
                     pile.push(l.clone());
                     piles.push(pile);
                     let index = piles.len() - 1;
-                    println!("Added picture {l} to pile {index}");
+                    tracing::debug!("Added picture {l} to pile {index}");
                     if l != r {
-                        println!("Added picture {r} to pile {index}");
+                        tracing::debug!("Added picture {r} to pile {index}");
                     }
                 },
                 (Some(pile), None) => {
                     piles[pile].push(r.clone());
-                    println!("Added picture {r} to pile {pile} because it also contains picture {l}");
+                    tracing::debug!("Added picture {r} to pile {pile} because it also contains picture {l}");
                 },
                 (None, Some(pile)) => {
                     piles[pile].push(l.clone());
-                    println!("Added picture {l} to pile {pile} because it also contains picture {r}");
+                    tracing::debug!("Added picture {l} to pile {pile} because it also contains picture {r}");
                 },
                 (Some(i), Some(j)) => {
                     if i != j {
                         let disbanding_pile = piles.swap_remove(j);
                         piles[i].merge(disbanding_pile);
-                        println!("Merged piles {i} and {j} to {i} because picture {l} belonged to pile {i} and picture {r} belonged to pile {j}");
+                        tracing::debug!("Merged piles {i} and {j} to {i} because picture {l} belonged to pile {i} and picture {r} belonged to pile {j}");
                     }
                 }
             }
             piles
         }).flatten().collect();
 
-        println!("{piles:?}");
+        tracing::trace!("{piles:?}");
 
         repo.piles = piles;
 
