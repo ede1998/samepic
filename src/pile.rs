@@ -22,8 +22,8 @@ impl Pile {
 
     pub fn new(image: Image) -> Self {
         Pile {
+            date: image.timestamp.date(),
             pictures: HashSet::from([image]),
-            date: NaiveDate::from_ymd(1998, 7, 21), // TODO
         }
     }
 
