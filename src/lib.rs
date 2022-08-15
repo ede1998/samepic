@@ -6,6 +6,7 @@ mod image;
 mod pile;
 
 use pile::Pile;
+use rayon::prelude::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 
 use crate::image::Image;
 
@@ -21,6 +22,7 @@ impl Repository {
 
         let images: Vec<_> = WalkDir::new(src)
             .into_iter()
+            .par_bridge()
             .filter_map(|e| {
                 e.ok()
                     .filter(|e| e.file_type().is_file())
@@ -42,9 +44,10 @@ impl Repository {
         let piles: Vec<Pile> = images
         .iter()
         .tuple_combinations::<(_, _)>()
+        .par_bridge()
         .filter(|(l, r)| l.hash.dist(&r.hash) < 20)
-        .chain(images.iter().map(|i| (i,i)))
-        .fold(Vec::with_capacity(images.len()), |mut piles, (l, r)| {
+        .chain(images.par_iter().map(|i| (i,i)))
+        .fold(|| Vec::with_capacity(images.len()), |mut piles: Vec<Pile>, (l, r)| {
             let left_pile = piles.iter().position(|pile| pile.pictures.contains(l));
             let right_pile = piles.iter().position(|pile| pile.pictures.contains(r));
             match (left_pile, right_pile) {
@@ -75,7 +78,7 @@ impl Repository {
                 }
             }
             piles
-        });
+        }).flatten().collect();
 
         println!("{piles:?}");
 

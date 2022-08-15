@@ -845,6 +845,7 @@ dependencies = [
  "itertools",
  "kamadak-exif",
  "opener",
+ "rayon",
  "thiserror",
  "tracing",
  "tracing-subscriber",
