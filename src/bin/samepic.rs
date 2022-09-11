@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::Start {
+        Commands::Sort {
             source,
             destination,
             opener,
@@ -147,17 +147,17 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Starts grouping all the images in source into a destination folder
-    Start {
+    Sort {
         /// Source folder to be sorted.
         #[clap(value_parser = dir)]
         source: Utf8PathBuf,
-        /// destination to sort the pictures into. If it does not exist, it will be created. Defaults to `source`-sorted.
+        /// Destination to sort the pictures into. If it does not exist, it will be created. Defaults to `source`-sorted.
         #[clap(short, long, value_parser)]
         destination: Option<Utf8PathBuf>,
         /// Program to open the picture folders with. Defaults to the default folder explorer.
         #[clap(short, long, value_parser = program)]
         opener: Option<PathBuf>,
-        /// do not attempt to open image folders after sorting.
+        /// Do not attempt to open image folders after sorting.
         #[clap(short, long, value_parser)]
         no_open: bool,
     },
