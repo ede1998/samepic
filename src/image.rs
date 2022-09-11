@@ -8,6 +8,34 @@ use thiserror::Error;
 
 type HashType = [u8; 16];
 
+pub struct ImageData {
+    data: Vec<u8>,
+    path: Utf8PathBuf,
+    pub timestamp: NaiveDateTime,
+}
+
+impl ImageData {
+    pub fn load(path: &Utf8Path) -> Result<Self, ImageLoadError> {
+        let file = std::fs::read(&path)?;
+
+        let timestamp = match parse_time_stamp(&file) {
+            Some(ts) => ts,
+            None => {
+                let meta = std::fs::metadata(&path)?;
+                let fallback: chrono::DateTime<chrono::Local> =
+                    meta.created().or_else(|_| meta.accessed())?.into();
+                fallback.naive_local()
+            }
+        };
+
+        Ok(ImageData {
+            path: path.into(),
+            timestamp,
+            data: file,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Image {
     path: Utf8PathBuf,
@@ -21,15 +49,10 @@ impl Image {
     }
 
     pub fn load(path: &Utf8Path) -> Result<Self, ImageLoadError> {
-        let file = std::fs::read(&path)?;
-        let meta = std::fs::metadata(&path)?;
-        let fallback: chrono::DateTime<chrono::Local> =
-            meta.created().or_else(|_| meta.accessed())?.into();
-
-        let timestamp = parse_time_stamp(&file, fallback.naive_local());
+        let image_data = ImageData::load(path)?;
 
         let base_image = {
-            let file_cursor = Cursor::new(&file);
+            let file_cursor = Cursor::new(&image_data.data);
             Reader::new(file_cursor).with_guessed_format()?.decode()?
         };
 
@@ -39,8 +62,8 @@ impl Image {
         let hash = hasher.hash_image(&base_image);
 
         Ok(Image {
-            path: path.into(),
-            timestamp,
+            path: image_data.path,
+            timestamp: image_data.timestamp,
             hash,
         })
     }
@@ -81,13 +104,10 @@ pub enum ImageLoadError {
     InvalidImage(#[from] image::error::ImageError),
 }
 
-fn parse_time_stamp(file: &[u8], fallback: NaiveDateTime) -> NaiveDateTime {
+fn parse_time_stamp(file: &[u8]) -> Option<NaiveDateTime> {
     use exif::Reader;
     let mut file_cursor = Cursor::new(file);
-    let exif = match Reader::new().read_from_container(&mut file_cursor) {
-        Ok(exif) => exif,
-        Err(_) => return fallback,
-    };
+    let exif = Reader::new().read_from_container(&mut file_cursor).ok()?;
     let tags = [
         exif::Tag::DateTimeOriginal,
         exif::Tag::DateTime,
@@ -114,5 +134,4 @@ fn parse_time_stamp(file: &[u8], fallback: NaiveDateTime) -> NaiveDateTime {
                 ),
             )
         })
-        .unwrap_or(fallback)
 }
