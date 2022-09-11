@@ -39,14 +39,23 @@ fn main() -> Result<()> {
                 show_folders(&destination, opener)?;
             }
         }
+        Commands::Open { path, opener } => {
+            show_folders(&path, opener)?;
+        }
         Commands::End => todo!(),
     }
     Ok(())
 }
 
 fn show_folders(path: &Utf8Path, opener: Option<PathBuf>) -> Result<()> {
-    for dir in path.read_dir()? {
-        let dir = dir?.path();
+    let mut entries = path
+        .read_dir()?
+        .collect::<Result<Vec<_>, std::io::Error>>()?;
+    entries.sort_unstable_by_key(|e| e.path());
+
+    for dir in entries {
+        let dir = dir.path();
+        tracing::info!("Showing pile {}", dir.display());
         match opener {
             Some(ref opener) => {
                 spawn_process(opener, &dir)?;
@@ -114,6 +123,15 @@ enum Commands {
         /// do not attempt to open image folders after sorting.
         #[clap(short, long, value_parser)]
         no_open: bool,
+    },
+    /// Run the opener program without rerunning the sorting process.
+    Open {
+        /// Source folder to be sorted.
+        #[clap(value_parser = dir)]
+        path: Utf8PathBuf,
+        /// Program to open the picture folders with. Defaults to the default folder explorer.
+        #[clap(short, long, value_parser = program)]
+        opener: Option<PathBuf>,
     },
     End,
 }
