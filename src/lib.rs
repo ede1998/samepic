@@ -90,6 +90,8 @@ impl Repository {
 
         tracing::trace!("{piles:#?}");
 
+        print_stats(&piles);
+
         repo.piles = piles;
 
         repo
@@ -127,3 +129,36 @@ fn abs(duration: Duration) -> Duration {
     }
 }
 
+fn print_stats(piles: &[Pile]) {
+    let longest_time_delta = piles
+        .iter()
+        .map(|p| {
+            use itertools::MinMaxResult;
+            match p.pictures.iter().map(|image| image.timestamp).minmax() {
+                MinMaxResult::NoElements | MinMaxResult::OneElement(_) => chrono::Duration::zero(),
+                MinMaxResult::MinMax(min, max) => max - min,
+            }
+        })
+        .max()
+        .unwrap_or_else(Duration::zero)
+        .num_minutes();
+    let total_pics: usize = piles.iter().map(|p| p.pictures.len()).sum();
+    let total_piles = piles.len();
+    let max_pile_size = piles
+        .iter()
+        .map(|p| p.pictures.len())
+        .max()
+        .unwrap_or_default();
+    let avg_pile_size = total_pics as f32 / total_piles as f32;
+    let sorted_piles: Vec<_> = piles
+        .iter()
+        .map(|p| p.pictures.len())
+        .sorted_unstable()
+        .collect();
+    let median_pile_size = sorted_piles[sorted_piles.len() / 2];
+    tracing::info!("===== PILE STATS =====");
+    tracing::info!("Image count: {total_pics}");
+    tracing::info!("Pile count: {total_piles}");
+    tracing::info!("Pile size (Avg/Med/Max): {avg_pile_size}/{median_pile_size}/{max_pile_size}");
+    tracing::info!("Longest time delta: {longest_time_delta}min");
+}
