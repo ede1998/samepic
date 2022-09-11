@@ -6,11 +6,13 @@ use image::io::Reader;
 use image_hasher::{HasherConfig, ImageHash};
 use thiserror::Error;
 
+type HashType = [u8; 16];
+
 #[derive(Debug, Clone)]
 pub struct Image {
     path: Utf8PathBuf,
     pub timestamp: NaiveDateTime,
-    pub hash: ImageHash<[u8; 8]>,
+    pub hash: ImageHash<HashType>,
 }
 
 impl Image {
@@ -31,7 +33,9 @@ impl Image {
             Reader::new(file_cursor).with_guessed_format()?.decode()?
         };
 
-        let hasher = HasherConfig::with_bytes_type::<[u8; 8]>().to_hasher();
+        let hasher = HasherConfig::with_bytes_type::<HashType>()
+            .hash_alg(image_hasher::HashAlg::Blockhash)
+            .to_hasher();
         let hash = hasher.hash_image(&base_image);
 
         Ok(Image {
