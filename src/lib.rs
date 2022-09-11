@@ -1,4 +1,5 @@
 use camino::{Utf8Path, Utf8PathBuf};
+use chrono::Duration;
 use color_eyre::eyre::{ContextCompat, Result};
 use itertools::Itertools;
 
@@ -45,7 +46,10 @@ impl Repository {
             .iter()
             .tuple_combinations::<(_, _)>()
             .par_bridge()
-            .filter(|(l, r)| l.hash.dist(&r.hash) < 20)
+            .filter(|(l, r)| {
+                let time_delta = abs(l.timestamp - r.timestamp);
+                time_delta < chrono::Duration::minutes(30) && l.hash.dist(&r.hash) < 10
+            })
             .chain(images.par_iter().map(|i| (i, i)))
             .collect();
 
@@ -114,3 +118,12 @@ impl Repository {
         Ok(())
     }
 }
+
+fn abs(duration: Duration) -> Duration {
+    if duration < Duration::zero() {
+        -duration
+    } else {
+        duration
+    }
+}
+
