@@ -75,12 +75,18 @@ fn show_folders(path: &Utf8Path, opener: Option<PathBuf>) -> Result<()> {
 fn collect(source: &Utf8Path, destination: &Utf8Path, keep_names: bool) -> Result<()> {
     for dir in source.read_dir_utf8()? {
         let dir = dir?;
-        tracing::info!("Disassemble pile {}", dir.path());
+        if !dir.metadata()?.is_dir() {
+            tracing::info!("Skipping {} because it is not a directory.", dir.path());
+            continue;
+        }
+
+        tracing::info!("Disassembling pile {}", dir.path());
         for image in dir.path().read_dir_utf8()? {
             let image = image?;
 
             let link = generate_file_name(image.path(), destination, keep_names)?;
-            std::fs::hard_link(image.path(), link)?;
+            std::fs::hard_link(image.path(), &link)
+                .wrap_err_with(|| format!("Failed to create file {link}"))?;
         }
     }
     Ok(())
@@ -91,18 +97,32 @@ fn generate_file_name(
     target_dir: &Utf8Path,
     keep_names: bool,
 ) -> Result<Utf8PathBuf> {
-    let new_name: std::borrow::Cow<_> = if keep_names {
+    let new_stem: std::borrow::Cow<_> = if keep_names {
         original
-            .file_name()
-            .wrap_err_with(|| format!("Invalid image file name for path {}", original))?
+            .file_stem()
+            .with_context(|| format!("Invalid file stem for path {}", original))?
             .into()
     } else {
         let img = samepic::image::ImageData::load(original)?;
-        img.timestamp.format("%FT%T").to_string().into()
+        img.timestamp.format("%FT%H-%M-%S").to_string().into()
     };
 
+    let extension = original
+        .extension()
+        .with_context(|| format!("Missing file extension for path {}", original))?;
+
+    let mut new_name = format!("{new_stem}.{extension}");
+    let mut same_name_count = 0;
+
     let mut link = target_dir.to_owned();
-    link.push(new_name.as_ref());
+    link.push(&new_name);
+
+    while link.exists() {
+        same_name_count += 1;
+        new_name = format!("{new_stem}-{same_name_count}.{extension}");
+        link.set_file_name(new_name);
+    }
+
     Ok(link)
 }
 
