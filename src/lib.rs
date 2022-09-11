@@ -74,7 +74,9 @@ impl Repository {
                 (Some(i), Some(j)) => {
                     if i != j {
                         let disbanding_pile = piles.swap_remove(j);
-                        piles[i].merge(disbanding_pile);
+                        // swap_remove moved the pile we want to retain if i == max index -> now it is at index j
+                        let pile_index = if i == piles.len() { j } else { i };
+                        piles[pile_index].merge(disbanding_pile);
                         tracing::debug!("Merged piles {i} and {j} to {i} because picture {l} belonged to pile {i} and picture {r} belonged to pile {j}");
                     }
                 }
