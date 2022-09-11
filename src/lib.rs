@@ -3,7 +3,7 @@ use chrono::Duration;
 use color_eyre::eyre::{ContextCompat, Result};
 use itertools::Itertools;
 
-mod image;
+pub mod image;
 mod pile;
 
 use pile::Pile;
