@@ -4,7 +4,7 @@ use color_eyre::{
     eyre::{eyre, Context},
     Result,
 };
-use samepic::ImageData;
+use samepic::{ImageData, DATETIME_FORMATTER};
 
 use crate::common::{create_dir_from_ref_name, dir};
 
@@ -68,7 +68,7 @@ fn generate_file_name(
             .into()
     } else {
         let img = ImageData::load(original)?;
-        img.timestamp.format("%FT%H-%M-%S").to_string().into()
+        img.timestamp.format(DATETIME_FORMATTER).to_string().into()
     };
 
     let extension = original

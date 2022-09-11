@@ -1,21 +1,25 @@
+use std::time::Duration as StdDuration;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use chrono::Duration;
-use color_eyre::eyre::{ContextCompat, Result};
+use color_eyre::eyre::{Context, ContextCompat, Result};
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 
 use crate::image::Image;
 use crate::pile::Pile;
+use crate::DATETIME_FORMATTER;
 
 pub struct Repository {
     pub piles: Vec<Pile>,
+    stats: Stats,
 }
 
 impl Repository {
     pub fn new(src: Utf8PathBuf) -> Self {
         use walkdir::WalkDir;
 
-        let mut repo = Self { piles: vec![] };
+        let start = std::time::Instant::now();
 
         let images: Vec<_> = WalkDir::new(src)
             .into_iter()
@@ -85,12 +89,12 @@ impl Repository {
         });
 
         tracing::trace!("{piles:#?}");
+        let elapsed = start.elapsed();
 
-        print_stats(&piles);
+        let stats = Stats::from_piles(&piles, elapsed);
+        stats.print_stats();
 
-        repo.piles = piles;
-
-        repo
+        Self { piles, stats }
     }
 
     pub fn create_piles(&self, dest: &Utf8Path) -> Result<()> {
@@ -113,6 +117,10 @@ impl Repository {
                 fs::hard_link(image.path(), link)?;
             }
         }
+
+        self.stats
+            .save_to_file(dest)
+            .wrap_err_with(|| format!("Failed to save stats file to {dest}"))?;
         Ok(())
     }
 }
@@ -125,36 +133,102 @@ fn abs(duration: Duration) -> Duration {
     }
 }
 
-fn print_stats(piles: &[Pile]) {
-    let longest_time_delta = piles
-        .iter()
-        .map(|p| {
-            use itertools::MinMaxResult;
-            match p.pictures.iter().map(|image| image.timestamp).minmax() {
-                MinMaxResult::NoElements | MinMaxResult::OneElement(_) => chrono::Duration::zero(),
-                MinMaxResult::MinMax(min, max) => max - min,
-            }
-        })
-        .max()
-        .unwrap_or_else(Duration::zero)
-        .num_minutes();
-    let total_pics: usize = piles.iter().map(|p| p.pictures.len()).sum();
-    let total_piles = piles.len();
-    let max_pile_size = piles
-        .iter()
-        .map(|p| p.pictures.len())
-        .max()
-        .unwrap_or_default();
-    let avg_pile_size = total_pics as f32 / total_piles as f32;
-    let sorted_piles: Vec<_> = piles
-        .iter()
-        .map(|p| p.pictures.len())
-        .sorted_unstable()
-        .collect();
-    let median_pile_size = sorted_piles[sorted_piles.len() / 2];
-    tracing::info!("===== PILE STATS =====");
-    tracing::info!("Image count: {total_pics}");
-    tracing::info!("Pile count: {total_piles}");
-    tracing::info!("Pile size (Avg/Med/Max): {avg_pile_size}/{median_pile_size}/{max_pile_size}");
-    tracing::info!("Longest time delta: {longest_time_delta}min");
+struct Stats {
+    longest_time_delta: i64,
+    total_pics: usize,
+    total_piles: usize,
+    max_pile_size: usize,
+    avg_pile_size: f32,
+    median_pile_size: usize,
+    run_time_ms: u128,
+}
+
+impl Stats {
+    fn from_piles(piles: &[Pile], run_time: StdDuration) -> Self {
+        let total_pics: usize = piles.iter().map(|p| p.pictures.len()).sum();
+        let total_piles = piles.len();
+        let sorted_piles: Vec<_> = piles
+            .iter()
+            .map(|p| p.pictures.len())
+            .sorted_unstable()
+            .collect();
+        Self {
+            run_time_ms: run_time.as_millis(),
+            total_pics,
+            total_piles,
+            avg_pile_size: total_pics as f32 / total_piles as f32,
+            median_pile_size: sorted_piles[sorted_piles.len() / 2],
+            max_pile_size: piles
+                .iter()
+                .map(|p| p.pictures.len())
+                .max()
+                .unwrap_or_default(),
+            longest_time_delta: piles
+                .iter()
+                .map(|p| {
+                    use itertools::MinMaxResult;
+                    match p.pictures.iter().map(|image| image.timestamp).minmax() {
+                        MinMaxResult::NoElements | MinMaxResult::OneElement(_) => {
+                            chrono::Duration::zero()
+                        }
+                        MinMaxResult::MinMax(min, max) => max - min,
+                    }
+                })
+                .max()
+                .unwrap_or_else(Duration::zero)
+                .num_minutes(),
+        }
+    }
+
+    fn print_stats(&self) {
+        let Self {
+            longest_time_delta,
+            total_pics,
+            total_piles,
+            max_pile_size,
+            avg_pile_size,
+            median_pile_size,
+            run_time_ms,
+        } = self;
+        tracing::info!("===== STATS =====");
+        tracing::info!("Run time: {run_time_ms}ms");
+        tracing::info!("Image count: {total_pics}");
+        tracing::info!("Pile count: {total_piles}");
+        tracing::info!(
+            "Pile size (Avg/Med/Max): {avg_pile_size}/{median_pile_size}/{max_pile_size}"
+        );
+        tracing::info!("Longest time delta: {longest_time_delta}min");
+    }
+
+    fn save_to_file(&self, dir: &Utf8Path) -> Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+        let path = dir.join("info.txt");
+        let mut file = File::create(path)?;
+
+        let timestamp = chrono::offset::Local::now().format(DATETIME_FORMATTER);
+
+        let Self {
+            longest_time_delta,
+            total_pics,
+            total_piles,
+            max_pile_size,
+            avg_pile_size,
+            median_pile_size,
+            run_time_ms,
+        } = self;
+
+        writeln!(file, "===== STATS =====")?;
+        writeln!(file, "Sorting time: {timestamp}")?;
+        writeln!(file, "Run time: {run_time_ms}ms")?;
+        writeln!(file, "Image count: {total_pics}")?;
+        writeln!(file, "Pile count: {total_piles}")?;
+        writeln!(
+            file,
+            "Pile size (Avg/Med/Max): {avg_pile_size}/{median_pile_size}/{max_pile_size}"
+        )?;
+        writeln!(file, "Longest time delta: {longest_time_delta}min")?;
+
+        Ok(())
+    }
 }
