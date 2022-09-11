@@ -105,33 +105,40 @@ pub enum ImageLoadError {
 }
 
 fn parse_time_stamp(file: &[u8]) -> Option<NaiveDateTime> {
-    use exif::Reader;
+    use exif::{In, Reader, Tag};
     let mut file_cursor = Cursor::new(file);
     let exif = Reader::new().read_from_container(&mut file_cursor).ok()?;
-    let tags = [
-        exif::Tag::DateTimeOriginal,
-        exif::Tag::DateTime,
-        exif::Tag::DateTimeDigitized,
-    ];
-    let ifds = [exif::In::PRIMARY, exif::In::THUMBNAIL];
-    tags.into_iter()
-        .flat_map(|tag| ifds.into_iter().map(move |ifd| (tag, ifd)))
-        .find_map(|(tag, ifd)| {
-            let f = exif.get_field(tag, ifd)?;
-            let dt: String = match f.value {
-                exif::Value::Ascii(ref a) => a
-                    .iter()
-                    .flat_map(|c| c.iter().copied().map(char::from))
-                    .collect(),
-                _ => return None,
-            };
-            let dt = exif::DateTime::from_ascii(dt.as_bytes()).ok()?;
-            Some(
-                NaiveDate::from_ymd(dt.year.into(), dt.month.into(), dt.day.into()).and_hms(
-                    dt.hour.into(),
-                    dt.minute.into(),
-                    dt.second.into(),
+
+    let try_extract_datetime = |tag: Tag, ifd: In| -> Option<NaiveDateTime> {
+        fn value_to_string(value: &exif::Value) -> Option<String> {
+            match value {
+                exif::Value::Ascii(ref a) => Some(
+                    a.iter()
+                        .flat_map(|c| c.iter().copied().map(char::from))
+                        .collect(),
                 ),
-            )
-        })
+                _ => None,
+            }
+        }
+        let f = exif.get_field(tag, ifd)?;
+        let dt: String = value_to_string(&f.value)?;
+        let dt = exif::DateTime::from_ascii(dt.as_bytes()).ok()?;
+        Some(
+            NaiveDate::from_ymd(dt.year.into(), dt.month.into(), dt.day.into()).and_hms(
+                dt.hour.into(),
+                dt.minute.into(),
+                dt.second.into(),
+            ),
+        )
+    };
+
+    for tag in [Tag::DateTimeOriginal, Tag::DateTime, Tag::DateTimeDigitized] {
+        for ifd in [In::PRIMARY, In::THUMBNAIL] {
+            if let Some(datetime) = try_extract_datetime(tag, ifd) {
+                return Some(datetime);
+            }
+        }
+    }
+
+    None
 }
