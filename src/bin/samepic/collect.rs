@@ -4,6 +4,7 @@ use color_eyre::{
     eyre::{eyre, Context},
     Result,
 };
+use samepic::ImageData;
 
 use crate::common::{create_dir_from_ref_name, dir};
 
@@ -66,7 +67,7 @@ fn generate_file_name(
             .ok_or_else(|| eyre!("Invalid file stem for path {}", original))?
             .into()
     } else {
-        let img = samepic::image::ImageData::load(original)?;
+        let img = ImageData::load(original)?;
         img.timestamp.format("%FT%H-%M-%S").to_string().into()
     };
 
