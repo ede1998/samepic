@@ -5,9 +5,22 @@ use std::{
 
 use camino::Utf8PathBuf;
 use clap::Args;
-use color_eyre::Result;
+use color_eyre::{
+    eyre::{eyre, Context},
+    Result,
+};
 
-use crate::common::{dir, program};
+use crate::common::dir;
+
+#[derive(Debug, Args)]
+pub struct OpenOptions {
+    /// Program to open the picture folders with. Defaults to the default folder explorer
+    #[clap(short, long, value_parser = program)]
+    opener: Option<PathBuf>,
+    /// Skip folders with only a single image
+    #[clap(short, long)]
+    skip_singles: bool,
+}
 
 /// Run the opener program without rerunning the sorting process
 #[derive(Debug, Args)]
@@ -15,14 +28,20 @@ pub struct Open {
     /// Source folder to be sorted
     #[clap(value_parser = dir)]
     path: Utf8PathBuf,
-    /// Program to open the picture folders with. Defaults to the default folder explorer
-    #[clap(short, long, value_parser = program)]
-    opener: Option<PathBuf>,
+    /// Skip all piles until the given pile
+    #[clap(short = 'a', long)]
+    start_at: Option<PathBuf>,
+    #[clap(flatten)]
+    options: OpenOptions,
 }
 
 impl Open {
-    pub fn new(path: Utf8PathBuf, opener: Option<PathBuf>) -> Self {
-        Self { path, opener }
+    pub fn new(path: Utf8PathBuf, options: OpenOptions) -> Self {
+        Self {
+            path,
+            start_at: None,
+            options,
+        }
     }
 
     pub fn run(self) -> Result<()> {
@@ -32,10 +51,33 @@ impl Open {
             .collect::<Result<Vec<_>, std::io::Error>>()?;
         entries.sort_unstable_by_key(|e| e.path());
 
-        for dir in entries {
+        let start = match self.start_at {
+            Some(start_at) => entries
+                .iter()
+                .position(|entry| entry.path() == start_at)
+                .ok_or_else(|| eyre!("Failed to find pile {}", start_at.display()))?,
+            None => 0,
+        };
+
+        for dir in entries.into_iter().skip(start) {
             let dir = dir.path();
+
+            if !dir.is_dir() {
+                tracing::debug!("Skipping {} because it is not a directory", dir.display());
+                continue;
+            }
+
+            if self.options.skip_singles && only_single_file(&dir) {
+                tracing::debug!(
+                    "Skipping pile {} because it only has one image",
+                    dir.display()
+                );
+                continue;
+            }
+
             tracing::info!("Showing pile {}", dir.display());
-            match self.opener {
+
+            match self.options.opener {
                 Some(ref opener) => {
                     spawn_process(opener, &dir)?;
                 }
@@ -76,4 +118,20 @@ fn pause() {
 
     // Read a single byte and discard
     let _ = stdin.read(&mut [0u8]).unwrap();
+}
+
+fn program(s: &str) -> Result<PathBuf> {
+    use which::which;
+
+    which(s).wrap_err_with(|| format!("Opener {s} is not a valid executable."))
+}
+
+fn only_single_file(dir: &Path) -> bool {
+    match dir.read_dir() {
+        Ok(dir) => !dir.enumerate().any(|(i, _)| i >= 1),
+        Err(e) => {
+            tracing::warn!("Failed read directory {}: {e}", dir.display());
+            false
+        }
+    }
 }

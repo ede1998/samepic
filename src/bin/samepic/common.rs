@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use camino::{Utf8Path, Utf8PathBuf};
 use color_eyre::{
     eyre::{eyre, Context},
@@ -32,10 +30,4 @@ pub fn dir(s: &str) -> Result<Utf8PathBuf> {
     meta.is_dir()
         .then(|| s.into())
         .ok_or_else(|| eyre!("Source is not a directory."))
-}
-
-pub fn program(s: &str) -> Result<PathBuf> {
-    use which::which;
-
-    which(s).wrap_err_with(|| format!("Opener {s} is not a valid executable."))
 }
